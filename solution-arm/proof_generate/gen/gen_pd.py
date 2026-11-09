@@ -26,16 +26,22 @@ def build(U):
         y1 = A('add', A('sub', a, c1), e)
         y2 = A('sub', A('sub', a, b1), e)
         return [y0, y1, y2]
+    def xaddr(byte):
+        # ldp/stp immediate offsets end at 1008; the second half of a wide
+        # unroll addresses through XPTR2 = XPTR + 1024.
+        return ('XPTR2', byte - 1024) if byte >= 1024 else ('XPTR', byte)
     for g in range(U):
         start = len(ins)
         vin = [v('in') for _ in range(6)]
         for p in range(3):
-            ins.append(Ins('L', [vin[2*p], vin[2*p+1]], [], f'ldp q{{d0}}, q{{d1}}, [XPTR, #{96*g+32*p}]'))
+            ptr, off = xaddr(96*g + 32*p)
+            ins.append(Ins('L', [vin[2*p], vin[2*p+1]], [], f'ldp q{{d0}}, q{{d1}}, [{ptr}, #{off}]'))
         t = v('t'); low.add(t)
         ins.append(Ins('L', [t], [], f'ldr q{{d0}}, [TPTR, #{16*g}]'))
         ys = bfly(red13(vin[0]), vin[1], vin[2], t, 0) + bfly(red13(vin[3]), vin[4], vin[5], t, 4)
         for p in range(3):
-            ins.append(Ins('T', [], [ys[2*p], ys[2*p+1]], f'stp q{{s0}}, q{{s1}}, [XPTR, #{96*g+32*p}]'))
+            ptr, off = xaddr(96*g + 32*p)
+            ins.append(Ins('T', [], [ys[2*p], ys[2*p+1]], f'stp q{{s0}}, q{{s1}}, [{ptr}, #{off}]'))
         for x in ins[start:]:
             x.g = g
     return ins, low
