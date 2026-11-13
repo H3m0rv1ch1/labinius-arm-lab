@@ -4,11 +4,6 @@ name: lab-arm
 # free public-repo arm64 GitHub runner. Not the official Graviton4 runner.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'solution-arm/**'
-      - '.yukon/**'
-      - '.github/workflows/lab-arm.yml'
 
 permissions:
   contents: read

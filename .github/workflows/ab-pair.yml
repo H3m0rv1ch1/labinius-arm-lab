@@ -1,0 +1,67 @@
+name: ab-pair
+
+# Paired development A/B on one free public-repo arm64 runner: baseline ref,
+# then candidate ref, same host. Not an official Graviton4 measurement.
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Baseline git ref
+        default: master
+      cand:
+        description: Candidate git ref
+        default: ab-sink16
+      reps:
+        description: Benchmark repetitions per ref
+        default: '3'
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Host
+        run: uname -a; nproc; lscpu | grep -E 'Model name|Architecture' || true
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+      - name: Paired run
+        env:
+          BASE: ${{ inputs.base }}
+          CAND: ${{ inputs.cand }}
+          REPS: ${{ inputs.reps }}
+        run: |
+          set -euo pipefail
+          bench() {
+            ref=$1
+            git checkout -q "$ref"
+            echo "===== ref $ref ====="
+            env -u GITHUB_ACTIONS -u RUNNER_TEMP bash .yukon/setup.sh --track arm
+            for i in $(seq 1 "$REPS"); do
+              env -u GITHUB_ACTIONS -u RUNNER_TEMP bash .yukon/benchmark.sh --track arm
+              cp .yukon/labinius-fast-arm-score.json "score-$ref-$i.json"
+              python3 - "score-$ref-$i.json" <<'PY'
+          import json, sys
+          s = json.load(open(sys.argv[1]))
+          runs = [r["provingTimeMs"] for r in s["runs"]]
+          print("RESULT", sys.argv[1], "score", s["score"], "runs", " ".join(f"{r:.1f}" for r in runs))
+          PY
+            done
+          }
+          bench "$BASE"
+          bench "$CAND"
+      - name: Upload scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ab-scores
+          path: score-*.json
+          if-no-files-found: warn
