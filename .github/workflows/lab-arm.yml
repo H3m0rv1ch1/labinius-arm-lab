@@ -24,9 +24,9 @@ jobs:
       - name: Host
         run: uname -a; nproc; grep -m1 'model name' /proc/cpuinfo || true; lscpu | head -20
       - name: Setup arm track
-        run: bash .yukon/setup.sh --track arm
+        run: env -u GITHUB_ACTIONS -u RUNNER_TEMP bash .yukon/setup.sh --track arm
       - name: Benchmark arm track
-        run: bash .yukon/benchmark.sh --track arm
+        run: env -u GITHUB_ACTIONS -u RUNNER_TEMP bash .yukon/benchmark.sh --track arm
       - name: Score
         if: always()
         run: |
