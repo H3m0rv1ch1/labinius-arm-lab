@@ -23,6 +23,11 @@ jobs:
           submodules: recursive
       - name: Host
         run: uname -a; nproc; grep -m1 'model name' /proc/cpuinfo || true; lscpu | head -20
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          unshare -Ur true && echo userns-ok || echo userns-fail
       - name: Setup arm track
         run: env -u GITHUB_ACTIONS -u RUNNER_TEMP bash .yukon/setup.sh --track arm
       - name: Benchmark arm track
