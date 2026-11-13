@@ -18,6 +18,10 @@
 //! exact.
 use super::*;
 use crate::ntt::{centered, for_blocks};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static SMS_SUMS_NS: AtomicU64 = AtomicU64::new(0);
+static SMS_REST_NS: AtomicU64 = AtomicU64::new(0);
 
 #[path = "sms_lattice.rs"]
 #[allow(dead_code)]
@@ -1040,6 +1044,8 @@ pub fn commit(values: &[B128], a: &SmsMatrix, workers: usize, q: u128, out: &mut
     assert_eq!(crate::rq::coefficient_bytes(q), W);
     let width = W;
     assert_eq!(out.len(), columns * N * width);
+    SMS_SUMS_NS.store(0, Ordering::Relaxed);
+    SMS_REST_NS.store(0, Ordering::Relaxed);
     for_blocks(out, N * width, LANES, workers, |first, block| unsafe {
         let arena = Arena::new();
         let Scratch { xs, acc, dev, acc2, dev2, y2, m, nib, y, tail } = &mut *arena.0;
@@ -1059,15 +1065,21 @@ pub fn commit(values: &[B128], a: &SmsMatrix, workers: usize, q: u128, out: &mut
         let batches = count.div_ceil(LANES);
         let mut targets: Vec<&mut [u8]> = block.chunks_mut(LANES * N * width).collect();
         for b in 0..batches {
+            let batch_start = std::time::Instant::now();
+            let mut sums_ns = 0u128;
             // pairs of batches share one key sweep; the second one's results wait in `*2`
             if b % 2 == 0 {
                 dev.fill(vdupq_n_s32(0));
                 if b + 1 < batches {
                     dev2.fill(vdupq_n_s32(0));
                     let (w0, w1) = (batch_words(b), batch_words(b + 1));
+                    let t = std::time::Instant::now();
                     sums2([&w0, &w1], a, nib, xs, [&mut acc[..], &mut acc2[..]], [&mut *y, &mut *y2], [&mut dev[..], &mut dev2[..]]);
+                    sums_ns += t.elapsed().as_nanos();
                 } else {
+                    let t = std::time::Instant::now();
                     sums(&batch_words(b), a, m, nib, xs, acc, y, dev);
+                    sums_ns += t.elapsed().as_nanos();
                 }
             } else {
                 core::mem::swap(dev, dev2);
@@ -1120,8 +1132,15 @@ pub fn commit(values: &[B128], a: &SmsMatrix, workers: usize, q: u128, out: &mut
                     *slot = core::array::from_fn(|i| bytes[i]);
                 }
             }
+            SMS_SUMS_NS.fetch_add(sums_ns as u64, Ordering::Relaxed);
+            SMS_REST_NS.fetch_add(batch_start.elapsed().as_nanos() as u64 - sums_ns as u64, Ordering::Relaxed);
         }
     });
+    eprintln!(
+        "sms_profile sums_ms={} rest_ms={}",
+        SMS_SUMS_NS.load(Ordering::Relaxed) / 1_000_000,
+        SMS_REST_NS.load(Ordering::Relaxed) / 1_000_000
+    );
 }
 
 #[cfg(test)]
