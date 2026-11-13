@@ -1,0 +1,41 @@
+name: lab-arm
+
+# Development measurement only. Runs the challenge's own local arm harness on a
+# free public-repo arm64 GitHub runner. Not the official Graviton4 runner.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'solution-arm/**'
+      - '.yukon/**'
+      - '.github/workflows/lab-arm.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Host
+        run: uname -a; nproc; grep -m1 'model name' /proc/cpuinfo || true; lscpu | head -20
+      - name: Setup arm track
+        run: bash .yukon/setup.sh --track arm
+      - name: Benchmark arm track
+        run: bash .yukon/benchmark.sh --track arm
+      - name: Score
+        if: always()
+        run: |
+          echo '--- score ---'
+          cat .yukon/labinius-fast-arm-score.json || true
+      - name: Upload score
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-score
+          path: .yukon/labinius-fast-arm-score.json
+          if-no-files-found: warn
